@@ -6,6 +6,15 @@ struct AppSettings: Codable {
     var refreshIntervalMinutes: Double = 5.0
 }
 
+struct ExtraUsageInfo {
+    let enabled: Bool
+    let percent: Int?    // utilization 0–100; nil when off or unknown
+    let used: Double?    // credits/amount spent (unit unlabelled — see ExtraUsage)
+    let limit: Double?
+
+    static let off = ExtraUsageInfo(enabled: false, percent: nil, used: nil, limit: nil)
+}
+
 struct UsageSnapshot {
     let fiveHourUtilization: Int
     let sevenDayUtilization: Int
@@ -16,7 +25,7 @@ struct UsageSnapshot {
     let weeklySessions: Int
     let weeklyMessages: Int
     let weeklyTokens: Int
-    let extraUsageEnabled: Bool
+    let extraUsage: ExtraUsageInfo
 
     var displayText: String { "\(sevenDayUtilization)%" }
     var menuBarPrimaryText: String { "5hr: \(fiveHourUtilization)%" }
@@ -33,7 +42,7 @@ struct UsageSnapshot {
             weeklySessions: 0,
             weeklyMessages: 0,
             weeklyTokens: 0,
-            extraUsageEnabled: false
+            extraUsage: .off
         )
     }
 }

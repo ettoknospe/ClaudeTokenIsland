@@ -62,16 +62,32 @@ struct OAuthUsageResponse: Decodable {
 
     // Pay-as-you-go "extra usage": the account toggle that lets work continue
     // (billed as credits) after the plan's 5h/7d limits are hit. The live API
-    // returns `is_enabled` plus `monthly_limit`/`used_credits`/`utilization` —
-    // but those three come back null when the toggle is off, and we have no
-    // real sample of the enabled shape, so only `is_enabled` is decoded here.
-    // (Decode nothing you can't type from evidence — a wrong non-optional type
-    // throws and kills the whole response decode.)
+    // returns `is_enabled` plus `monthly_limit`/`used_credits`/`utilization`,
+    // but those three come back null when the toggle is off and we have no real
+    // sample of the enabled shape — the types are inferred (utilization is a
+    // Double 0–100 like every other utilization in this API; the credit values
+    // are assumed plain numbers). Each is decoded through `try?` so a wrong
+    // guess yields nil instead of throwing and killing the whole response
+    // decode. Replace the guesses when a real enabled-state sample arrives.
     struct ExtraUsage: Decodable {
         let isEnabled: Bool
+        let utilization: Double?   // 0–100, drives the bar colour
+        let usedCredits: Double?
+        let monthlyLimit: Double?
 
         enum CodingKeys: String, CodingKey {
             case isEnabled = "is_enabled"
+            case utilization
+            case usedCredits = "used_credits"
+            case monthlyLimit = "monthly_limit"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            isEnabled    = ((try? c.decodeIfPresent(Bool.self,   forKey: .isEnabled)) ?? nil) ?? false
+            utilization  =  (try? c.decodeIfPresent(Double.self, forKey: .utilization)) ?? nil
+            usedCredits  =  (try? c.decodeIfPresent(Double.self, forKey: .usedCredits)) ?? nil
+            monthlyLimit =  (try? c.decodeIfPresent(Double.self, forKey: .monthlyLimit)) ?? nil
         }
     }
 }
@@ -166,7 +182,14 @@ final class UsageService: ObservableObject {
                 let fiveHourReset = response.fiveHour?.resetsAtDate
                 let sevenDayReset = response.sevenDay?.resetsAtDate
 
-                let extraUsageEnabled = response.extraUsage?.isEnabled ?? false
+                let extraUsage: ExtraUsageInfo = response.extraUsage.map {
+                    ExtraUsageInfo(
+                        enabled: $0.isEnabled,
+                        percent: $0.utilization.map { Int($0) },
+                        used: $0.usedCredits,
+                        limit: $0.monthlyLimit
+                    )
+                } ?? .off
 
                 let snapshot = UsageSnapshot(
                     fiveHourUtilization: fiveHourUtil,
@@ -178,7 +201,7 @@ final class UsageService: ObservableObject {
                     weeklySessions: 0,
                     weeklyMessages: 0,
                     weeklyTokens: 0,
-                    extraUsageEnabled: extraUsageEnabled
+                    extraUsage: extraUsage
                 )
 
                 await MainActor.run {

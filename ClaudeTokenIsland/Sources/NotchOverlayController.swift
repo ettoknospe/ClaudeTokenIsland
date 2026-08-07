@@ -441,7 +441,7 @@ struct NotchLiveView: View {
                      percentMatchID: Match.fiveHourPercent, barMatchID: Match.fiveHourBar)
             usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
 
-            extraUsageRow(enabled: snapshot.extraUsageEnabled)
+            extraUsageRow(snapshot.extraUsage)
         }
         .padding(.horizontal, 12)
         .padding(.top, 24)
@@ -480,21 +480,48 @@ struct NotchLiveView: View {
         }
     }
 
-    // Whether the account's pay-as-you-go "extra usage" toggle is on — i.e.
-    // whether work keeps going (billed as credits) once the plan limits are hit.
-    private func extraUsageRow(enabled: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text("Extra usage")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
-            Spacer()
-            Circle()
-                .fill(enabled ? Color(red: 0.2, green: 0.9, blue: 0.4) : .white.opacity(0.3))
-                .frame(width: 6, height: 6)
-            Text(enabled ? "On" : "Off")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.white.opacity(enabled ? 0.9 : 0.5))
+    // The account's pay-as-you-go "extra usage" pool — whether work keeps going
+    // (billed as credits) once the plan limits are hit, plus how much has been
+    // spent. Bar is green/orange/red by utilization when on, flat gray when off.
+    private func extraUsageRow(_ info: ExtraUsageInfo) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("Extra usage")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.8))
+                Spacer()
+                if info.enabled, let used = info.used, let limit = info.limit {
+                    Text("\(creditText(used)) / \(creditText(limit))")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.6))
+                } else {
+                    Text(info.enabled ? "On" : "Off")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(info.enabled ? 0.9 : 0.5))
+                }
+            }
+            extraUsageBar(info)
         }
+    }
+
+    // Unit-agnostic: no currency symbol until a real enabled-state sample
+    // confirms whether the values are dollars, cents, or credits.
+    private func creditText(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%.2f", v)
+    }
+
+    private func extraUsageBar(_ info: ExtraUsageInfo) -> some View {
+        let fraction = info.enabled ? min(1, max(0, CGFloat(info.percent ?? 0) / 100)) : 0
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.15))
+                Capsule()
+                    .fill(statusColor(for: info.percent ?? 0))
+                    .frame(width: geo.size.width * fraction)
+            }
+        }
+        .frame(height: 3)
     }
 
     private func bar(percent: Int, matchID: String? = nil) -> some View {

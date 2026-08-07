@@ -25,6 +25,10 @@ final class OAuthUsageResponseTests: XCTestCase {
         XCTAssertEqual(response.sevenDay?.utilization, 71.0)
         XCTAssertEqual(response.sevenDaySonnet?.utilization, 27.0)
         XCTAssertEqual(response.extraUsage?.isEnabled, false)
+        // Values are null when the toggle is off.
+        XCTAssertNil(response.extraUsage?.utilization)
+        XCTAssertNil(response.extraUsage?.usedCredits)
+        XCTAssertNil(response.extraUsage?.monthlyLimit)
     }
 
     func testDecodesExtraUsageEnabled() throws {
@@ -38,6 +42,45 @@ final class OAuthUsageResponseTests: XCTestCase {
         let response = try JSONDecoder().decode(OAuthUsageResponse.self, from: json)
 
         XCTAssertEqual(response.extraUsage?.isEnabled, true)
+    }
+
+    // Assumed shape (plain numbers) — replace if a real enabled sample differs.
+    func testDecodesExtraUsageEnabledWithValues() throws {
+        let json = """
+        {
+          "five_hour": null, "seven_day": null, "seven_day_sonnet": null,
+          "extra_usage": { "is_enabled": true, "monthly_limit": 50.0, "used_credits": 12.5, "utilization": 25.0 }
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(OAuthUsageResponse.self, from: json)
+
+        XCTAssertEqual(response.extraUsage?.isEnabled, true)
+        XCTAssertEqual(response.extraUsage?.monthlyLimit, 50.0)
+        XCTAssertEqual(response.extraUsage?.usedCredits, 12.5)
+        XCTAssertEqual(response.extraUsage?.utilization, 25.0)
+    }
+
+    // The guessed value types are decoded through `try?`: if the real API sends
+    // a different shape (money object, string), those fields must fall to nil
+    // WITHOUT throwing and taking the rest of the response down with them.
+    func testExtraUsageWrongValueTypesDoNotBreakDecode() throws {
+        let json = """
+        {
+          "five_hour": { "utilization": 42.0, "resets_at": "2026-03-19T19:00:00+00:00" },
+          "seven_day": null, "seven_day_sonnet": null,
+          "extra_usage": { "is_enabled": true, "monthly_limit": "n/a",
+                           "used_credits": { "amount_minor": 1250 }, "utilization": 25.0 }
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(OAuthUsageResponse.self, from: json)
+
+        XCTAssertEqual(response.extraUsage?.isEnabled, true)
+        XCTAssertNil(response.extraUsage?.monthlyLimit)   // string → nil, no throw
+        XCTAssertNil(response.extraUsage?.usedCredits)    // object → nil, no throw
+        XCTAssertEqual(response.extraUsage?.utilization, 25.0)
+        XCTAssertEqual(response.fiveHour?.utilization, 42.0)  // rest intact
     }
 
     func testDecodesExtraUsageAbsent() throws {
