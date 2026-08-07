@@ -1,33 +1,53 @@
 # Claude Token Island
 
-A lightweight macOS menu bar app that shows your [Claude.ai](https://claude.ai) plan usage in real time — a Dynamic-Island-style pill attached under the notch, plus a menu bar popover — without opening a browser.
+A lightweight macOS app that shows your [Claude.ai](https://claude.ai) plan usage right under your MacBook's notch — a Dynamic-Island-style pill you tap to expand, no browser needed.
 
-![Claude Token Island](ClaudeTokenIsland/Resources/Assets.xcassets/Image.imageset/Image.png)
+![Claude Token Island expanded](docs/expanded-island.png)
 
 ## What it shows
 
-- **Notch pill**: current 5-hour session usage, live, right under the notch.
-- **Menu bar popover**: same data, plus weekly (7-day) usage.
+- **Collapsed:** a small pill flush under the notch showing your live 5-hour session usage — a percentage and a colored bar.
+- **Expanded (tap it):** the notch grows into an island with the full breakdown:
+  - **Session (5h)** — current 5-hour window, with time until reset
+  - **Weekly (7d)** — weekly all-models usage, with time until reset
+  - **Extra usage** — pay-as-you-go credits spent vs. your cap (only if enabled on your account)
 
-Mirrors the data on `claude.ai/settings/usage`. Colors update based on your configured warning/critical thresholds.
+Bars are green normally, orange from 80%, red from 90%. Data mirrors `claude.ai/settings/usage`.
+
+## Interaction
+
+- **Tap** the pill to expand; tap again, click anywhere else, or wait ~4s (hovering pauses the countdown) to collapse.
+- **Gear** (top-right of the expanded island) opens a small settings popover: refresh interval, a manual refresh, and quit.
 
 ## Requirements
 
-- macOS 13+, MacBook with a notch (for the pill; the menu bar popover works on any Mac)
-- [Claude Code](https://claude.ai/code) installed and logged in (the app reads its OAuth token from your Keychain — no separate credentials needed)
+- macOS 13+, a MacBook **with a notch**
+- [Claude Code](https://claude.ai/code) installed and logged in — the app reads its OAuth token from your Keychain, so there are no separate credentials to enter.
 
 ## Build from source
 
+Uses [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated from `project.yml`; regenerate with `xcodegen generate` after editing it.
+
 ```bash
-git clone <this-repo>
+git clone https://github.com/ettoknospe/ClaudeTokenIsland
 cd ClaudeTokenIsland/ClaudeTokenIsland
+xcodegen generate            # if the .xcodeproj isn't present / project.yml changed
 xcodebuild -scheme ClaudeTokenIsland -configuration Release build
-open ~/Library/Developer/Xcode/DerivedData/ClaudeTokenIsland-*/Build/Products/Release/ClaudeTokenIsland.app
 ```
 
 Or open `ClaudeTokenIsland.xcodeproj` in Xcode and run with ⌘R.
 
-Uses [XcodeGen](https://github.com/yonaskolb/XcodeGen) — after editing `project.yml`, regenerate with `xcodegen generate`.
+## Install & run at login
+
+```bash
+# copy the built app into /Applications
+cp -R ~/Library/Developer/Xcode/DerivedData/ClaudeTokenIsland-*/Build/Products/Release/ClaudeTokenIsland.app /Applications/
+open /Applications/ClaudeTokenIsland.app
+```
+
+On first launch macOS asks permission to read the Claude Code Keychain item — click **Always Allow** (once, since the app now lives in a fixed location).
+
+To start it automatically: **System Settings → General → Login Items → +**, and add `ClaudeTokenIsland`.
 
 ## How it works
 
@@ -39,18 +59,9 @@ Authorization: Bearer <oauth_token>
 anthropic-beta: oauth-2025-04-20
 ```
 
-The token is read once at startup and cached in memory, and re-read from the Keychain automatically if a request comes back unauthorized.
+The token is cached in memory and re-read from the Keychain automatically if a request comes back unauthorized. On a rate-limit (`429`) it backs off and retries after 15 minutes.
 
 > **Note:** This endpoint is undocumented and may change. It requires Claude Code to be installed and logged in.
-
-## Settings
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Compact display | On | Show both 5h and 7d in the menu bar popover |
-| Warning threshold | 80% | Orange color above this |
-| Critical threshold | 90% | Red color above this |
-| Usage alerts | On | macOS notification when thresholds are crossed |
 
 ## Running tests
 
