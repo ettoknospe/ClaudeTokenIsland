@@ -21,6 +21,13 @@ private final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+// Accepts the very first click even while the window is inactive — without this
+// a non-activating panel swallows the first click just to take focus, so the
+// pill would need a second click to actually register the tap.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 // MARK: - Controller
 final class NotchOverlayController: NSObject, ObservableObject {
     private var panel: NotchPanel?
@@ -53,6 +60,15 @@ final class NotchOverlayController: NSObject, ObservableObject {
             self, selector: #selector(repositionPanel),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
         )
+        // Collapse the island when the user switches to another app.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(otherAppActivated),
+            name: NSWorkspace.didActivateApplicationNotification, object: nil
+        )
+    }
+
+    @objc private func otherAppActivated() {
+        if isExpanded { collapse() }
     }
 
     // MARK: - Built-in Screen
@@ -125,20 +141,19 @@ final class NotchOverlayController: NSObject, ObservableObject {
         p.isMovable          = false
         p.ignoresMouseEvents = false
 
-        let hosting = NSHostingController(rootView: NotchLiveView(
+        let hostingView = FirstMouseHostingView(rootView: NotchLiveView(
             usageService:    usageService,
             settingsManager: settingsManager,
             controller:      self,
             notchWidth:      notchW,
             notchHeight:     notchH
         ))
-        hosting.view.wantsLayer        = true
-        hosting.view.layer?.backgroundColor = CGColor.clear
-        // Without this, NSHostingController keeps resizing the window to its
-        // content's intrinsic size (zero, since the root view is a GeometryReader) —
-        // window sizing here is fully manual, driven by setFrame/animator only.
-        hosting.sizingOptions           = []
-        p.contentViewController        = hosting
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = CGColor.clear
+        // Fully manual sizing — driven by setFrame/animator, never the content's
+        // (zero) intrinsic size.
+        hostingView.sizingOptions = []
+        p.contentView = hostingView
         p.setFrame(frame, display: true)
 
         panel = p
