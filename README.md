@@ -8,9 +8,9 @@ A lightweight macOS app that shows your [Claude.ai](https://claude.ai) plan usag
 
 - **Collapsed:** a small pill flush under the notch showing your live 5-hour session usage — a percentage and a colored bar.
 - **Expanded (tap it):** the notch grows into an island with the full breakdown:
-  - **Session (5h)** — current 5-hour window, with time until reset
+  - **Session (5h)** — current 5-hour window, with time until reset. Once you hit 100% *and* extra usage is on, this shows your live credit spend (in euros) instead of a flat "100%", so the number stays informative.
   - **Weekly (7d)** — weekly all-models usage, with time until reset
-  - **Extra usage** — pay-as-you-go credits spent vs. your cap (only if enabled on your account)
+  - **Extra usage** — whether pay-as-you-go credits are enabled (**On/Off**), plus euros spent vs. your monthly cap when on. Its bar is green/orange/red by utilization when on, gray when off.
 
 Bars are green normally, orange from 80%, red from 90%. Data mirrors `claude.ai/settings/usage`.
 
