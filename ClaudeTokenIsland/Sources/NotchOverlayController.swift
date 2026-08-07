@@ -29,7 +29,7 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 }
 
 // MARK: - Controller
-final class NotchOverlayController: NSObject, ObservableObject {
+final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegate {
     private var panel: NotchPanel?
     var popover: NSPopover?
 
@@ -56,6 +56,7 @@ final class NotchOverlayController: NSObject, ObservableObject {
         self.settingsManager = settingsManager
         self.popover         = popover
         super.init()
+        popover.delegate = self
         setupPanel()
         NotificationCenter.default.addObserver(
             self, selector: #selector(repositionPanel),
@@ -212,6 +213,9 @@ final class NotchOverlayController: NSObject, ObservableObject {
         isExpanded = false
         collapseTimer?.invalidate()
         stopOutsideClickMonitor()
+        // Close the settings popover first so it can't be left anchored to the
+        // shrinking panel, stranded over the notch.
+        popover?.performClose(nil)
         animate(to: collapsedFrame())
     }
 
@@ -245,7 +249,9 @@ final class NotchOverlayController: NSObject, ObservableObject {
     // Hovering the expanded island pauses the auto-collapse countdown;
     // leaving it restarts the countdown rather than collapsing immediately.
     func hoverChanged(_ hovering: Bool) {
-        guard isExpanded else { return }
+        // Don't let the leave-island path restart a countdown that would collapse
+        // out from under an open settings popover.
+        guard isExpanded, popover?.isShown != true else { return }
         if hovering {
             collapseTimer?.invalidate()
         } else {
@@ -260,6 +266,9 @@ final class NotchOverlayController: NSObject, ObservableObject {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Keep the island open while the popover is up; popoverDidClose
+            // restarts the auto-collapse countdown.
+            collapseTimer?.invalidate()
             let anchor = NSRect(x: cv.bounds.midX - 1, y: 0, width: 2, height: 2)
             popover.show(relativeTo: anchor, of: cv, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
@@ -267,6 +276,10 @@ final class NotchOverlayController: NSObject, ObservableObject {
     }
 
     func closePopover() { popover?.performClose(nil) }
+
+    func popoverDidClose(_ notification: Notification) {
+        if isExpanded { scheduleCollapseTimer() }
+    }
 }
 
 // MARK: - Island Shape
@@ -424,7 +437,10 @@ struct NotchLiveView: View {
                     // Same curve as NotchOverlayController.animate()'s window frame.
                     .animation(.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.38),
                                value: controller.isExpanded)
-                    .onTapGesture { controller.toggleExpand() }
+                    // Tap-to-expand only when collapsed; when expanded, collapse
+                    // is owned by the outside-click monitor and the auto-collapse
+                    // timer — so a tap on the gear can't also collapse the island.
+                    .onTapGesture { if !controller.isExpanded { controller.toggleExpand() } }
             }
         }
         .onHover { hovering in
