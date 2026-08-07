@@ -189,19 +189,11 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
         )
     }
 
-    // Expand uses a plain ease-out (both control-point Y values ≤ 1 → cannot
-    // overshoot) so the notch doesn't punch past its target and settle back.
-    // Collapse keeps the springy overshoot curve, which reads fine shrinking.
-    private static let expandTiming  = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-    private static let collapseTiming = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
-
-    private func animate(to frame: NSRect, timing: CAMediaTimingFunction) {
-        guard let panel else { return }
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.38
-            ctx.timingFunction = timing
-            panel.animator().setFrame(frame, display: true)
-        }
+    // Animation scrapped for now — expand/collapse snap instantly. The animated
+    // frame overshot on expand; re-enable later by wrapping the setFrame in an
+    // NSAnimationContext (and restoring the content .animation in NotchLiveView).
+    private func setPanelFrame(_ frame: NSRect) {
+        panel?.setFrame(frame, display: true)
     }
 
     func toggleExpand() {
@@ -210,7 +202,7 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
 
     private func expand() {
         isExpanded = true
-        animate(to: expandedFrame(), timing: Self.expandTiming)
+        setPanelFrame(expandedFrame())
         scheduleCollapseTimer()
         startOutsideClickMonitor()
     }
@@ -222,7 +214,7 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
         // Close the settings popover first so it can't be left anchored to the
         // shrinking panel, stranded over the notch.
         popover?.performClose(nil)
-        animate(to: collapsedFrame(), timing: Self.collapseTiming)
+        setPanelFrame(collapsedFrame())
     }
 
     // A click anywhere outside our own windows (another app, the desktop, even
@@ -440,11 +432,8 @@ struct NotchLiveView: View {
                         // matchedGeometryEffect identity the morph relies on.
                         if controller.isExpanded { expandedContent } else { collapsedContent }
                     }
-                    // Smooth easeInOut (NOT the window's spring curve) so the
-                    // matched 5h number and bar glide to their expanded positions
-                    // without the overshoot that made them fling. Same 0.38s as the
-                    // window animation so content and frame land together.
-                    .animation(.easeInOut(duration: 0.38), value: controller.isExpanded)
+                    // Content animation scrapped along with the window animation —
+                    // the island snaps between states for now.
                     // Tap-to-expand only when collapsed; when expanded, collapse
                     // is owned by the outside-click monitor and the auto-collapse
                     // timer — so a tap on the gear can't also collapse the island.
