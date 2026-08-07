@@ -24,6 +24,30 @@ final class OAuthUsageResponseTests: XCTestCase {
         XCTAssertEqual(response.fiveHour?.utilization, 35.0)
         XCTAssertEqual(response.sevenDay?.utilization, 71.0)
         XCTAssertEqual(response.sevenDaySonnet?.utilization, 27.0)
+        XCTAssertEqual(response.extraUsage?.isEnabled, false)
+    }
+
+    func testDecodesExtraUsageEnabled() throws {
+        let json = """
+        {
+          "five_hour": null, "seven_day": null, "seven_day_sonnet": null,
+          "extra_usage": { "is_enabled": true, "monthly_limit": null, "used_credits": null, "utilization": null }
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(OAuthUsageResponse.self, from: json)
+
+        XCTAssertEqual(response.extraUsage?.isEnabled, true)
+    }
+
+    func testDecodesExtraUsageAbsent() throws {
+        let json = """
+        { "five_hour": null, "seven_day": null, "seven_day_sonnet": null }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(OAuthUsageResponse.self, from: json)
+
+        XCTAssertNil(response.extraUsage)
     }
 
     func testDecodesNullSonnet() throws {

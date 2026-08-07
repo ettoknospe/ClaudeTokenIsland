@@ -343,6 +343,19 @@ private struct IslandShape: Shape {
 // given via GeometryReader, so its own layout never fights the window-frame
 // animation that does the actual "growing" motion.
 
+private extension View {
+    // matchedGeometryEffect only when an id is supplied — lets one row helper
+    // serve both the matched 5h row and the unmatched 7d row.
+    @ViewBuilder
+    func matchedGeometry(_ id: String?, in ns: Namespace.ID) -> some View {
+        if let id {
+            matchedGeometryEffect(id: id, in: ns)
+        } else {
+            self
+        }
+    }
+}
+
 struct NotchLiveView: View {
     @ObservedObject var usageService:    UsageService
     @ObservedObject var settingsManager: SettingsManager
@@ -352,6 +365,17 @@ struct NotchLiveView: View {
     var notchHeight: CGFloat
 
     @State private var isHovered = false
+
+    // Shared namespace so the collapsed "5h %" number and its bar morph into the
+    // expanded "Session (5h)" row's number and full-width bar (and back) instead
+    // of cross-fading. The window frame is animated by AppKit over 0.38s with a
+    // spring-overshoot curve; the matched content is animated with the same curve
+    // (see .animation below) so the two clocks stay in step.
+    @Namespace private var geometry
+    private enum Match {
+        static let fiveHourPercent = "fiveHourPercent"
+        static let fiveHourBar = "fiveHourBar"
+    }
 
     // The stats strip hangs below the physical camera housing.
     static let stripHeight: CGFloat = 14
@@ -381,9 +405,14 @@ struct NotchLiveView: View {
                 IslandShape(topWidth: max(0, notchWidth - 8), notchHeight: notchHeight - 2)
                     .fill(Color.black)
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .overlay(
-                        controller.isExpanded ? AnyView(expandedContent) : AnyView(collapsedContent)
-                    )
+                    .overlay {
+                        // if/else, not AnyView: type-erasure breaks the
+                        // matchedGeometryEffect identity the morph relies on.
+                        if controller.isExpanded { expandedContent } else { collapsedContent }
+                    }
+                    // Same curve as NotchOverlayController.animate()'s window frame.
+                    .animation(.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.38),
+                               value: controller.isExpanded)
                     .onTapGesture { controller.toggleExpand() }
             }
         }
@@ -408,12 +437,11 @@ struct NotchLiveView: View {
     // with a gear (Settings/Quit popover) tucked into the top-right corner.
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn)
+            usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn,
+                     percentMatchID: Match.fiveHourPercent, barMatchID: Match.fiveHourBar)
             usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
 
-            if let spend = snapshot.spend {
-                spendRow(spend)
-            }
+            extraUsageRow(enabled: snapshot.extraUsageEnabled)
         }
         .padding(.horizontal, 12)
         .padding(.top, 24)
@@ -430,7 +458,8 @@ struct NotchLiveView: View {
         }
     }
 
-    private func usageRow(label: String, percent: Int, resetIn: String?) -> some View {
+    private func usageRow(label: String, percent: Int, resetIn: String?,
+                          percentMatchID: String? = nil, barMatchID: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(label)
@@ -440,32 +469,35 @@ struct NotchLiveView: View {
                 Text("\(percent)%")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
+                    .matchedGeometry(percentMatchID, in: geometry)
                 if let resetIn {
                     Text("· resets \(resetIn)")
                         .font(.system(size: 9))
                         .foregroundColor(.white.opacity(0.4))
                 }
             }
-            bar(percent: percent)
+            bar(percent: percent, matchID: barMatchID)
         }
     }
 
-    private func spendRow(_ spend: SpendSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text("Extra usage")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.8))
-                Spacer()
-                Text("\(spend.usedFormatted) / \(spend.limitFormatted)")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-            bar(percent: spend.percent)
+    // Whether the account's pay-as-you-go "extra usage" toggle is on — i.e.
+    // whether work keeps going (billed as credits) once the plan limits are hit.
+    private func extraUsageRow(enabled: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text("Extra usage")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
+            Spacer()
+            Circle()
+                .fill(enabled ? Color(red: 0.2, green: 0.9, blue: 0.4) : .white.opacity(0.3))
+                .frame(width: 6, height: 6)
+            Text(enabled ? "On" : "Off")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.white.opacity(enabled ? 0.9 : 0.5))
         }
     }
 
-    private func bar(percent: Int) -> some View {
+    private func bar(percent: Int, matchID: String? = nil) -> some View {
         GeometryReader { geo in
             let fraction = min(1, max(0, CGFloat(percent) / 100))
             ZStack(alignment: .leading) {
@@ -477,6 +509,9 @@ struct NotchLiveView: View {
             }
         }
         .frame(height: 3)
+        // Applied to the sized result, not inside the GeometryReader, so the
+        // matched frame is the bar's real bounds.
+        .matchedGeometry(matchID, in: geometry)
     }
 
     // ── Stats row: "87 %" + inline progress bar (collapsed pill only) ─────────
@@ -486,8 +521,9 @@ struct NotchLiveView: View {
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundColor(.white)
                 .brightness(isHovered ? 0.15 : 0)
+                .matchedGeometry(Match.fiveHourPercent, in: geometry)
 
-            bar(percent: fiveHour)
+            bar(percent: fiveHour, matchID: Match.fiveHourBar)
         }
     }
 }

@@ -35,13 +35,13 @@ struct OAuthUsageResponse: Decodable {
     let fiveHour: UsagePeriod?
     let sevenDay: UsagePeriod?
     let sevenDaySonnet: UsagePeriod?
-    let spend: Spend?
+    let extraUsage: ExtraUsage?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
         case sevenDaySonnet = "seven_day_sonnet"
-        case spend
+        case extraUsage = "extra_usage"
     }
 
     struct UsagePeriod: Decodable {
@@ -60,32 +60,18 @@ struct OAuthUsageResponse: Decodable {
         }
     }
 
-    // Pay-as-you-go "extra usage" credits — a separate pool from the plan's
-    // 5h/7d token limits. Present only for accounts with extra usage enabled.
-    struct Spend: Decodable {
-        let enabled: Bool
-        let used: Money
-        let limit: Money
-        let percent: Int
+    // Pay-as-you-go "extra usage": the account toggle that lets work continue
+    // (billed as credits) after the plan's 5h/7d limits are hit. The live API
+    // returns `is_enabled` plus `monthly_limit`/`used_credits`/`utilization` —
+    // but those three come back null when the toggle is off, and we have no
+    // real sample of the enabled shape, so only `is_enabled` is decoded here.
+    // (Decode nothing you can't type from evidence — a wrong non-optional type
+    // throws and kills the whole response decode.)
+    struct ExtraUsage: Decodable {
+        let isEnabled: Bool
 
-        struct Money: Decodable {
-            let amountMinor: Int
-            let currency: String
-            let exponent: Int
-
-            enum CodingKeys: String, CodingKey {
-                case amountMinor = "amount_minor"
-                case currency
-                case exponent
-            }
-
-            var formatted: String {
-                let value = Double(amountMinor) / pow(10, Double(exponent))
-                let formatter = NumberFormatter()
-                formatter.numberStyle = .currency
-                formatter.currencyCode = currency
-                return formatter.string(from: NSNumber(value: value)) ?? "\(value) \(currency)"
-            }
+        enum CodingKeys: String, CodingKey {
+            case isEnabled = "is_enabled"
         }
     }
 }
@@ -180,11 +166,7 @@ final class UsageService: ObservableObject {
                 let fiveHourReset = response.fiveHour?.resetsAtDate
                 let sevenDayReset = response.sevenDay?.resetsAtDate
 
-                let spendSnapshot: SpendSnapshot? = (response.spend?.enabled == true)
-                    ? response.spend.map {
-                        SpendSnapshot(percent: $0.percent, usedFormatted: $0.used.formatted, limitFormatted: $0.limit.formatted)
-                      }
-                    : nil
+                let extraUsageEnabled = response.extraUsage?.isEnabled ?? false
 
                 let snapshot = UsageSnapshot(
                     fiveHourUtilization: fiveHourUtil,
@@ -196,7 +178,7 @@ final class UsageService: ObservableObject {
                     weeklySessions: 0,
                     weeklyMessages: 0,
                     weeklyTokens: 0,
-                    spend: spendSnapshot
+                    extraUsageEnabled: extraUsageEnabled
                 )
 
                 await MainActor.run {
