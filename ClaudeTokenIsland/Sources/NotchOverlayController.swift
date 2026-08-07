@@ -189,11 +189,19 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
         )
     }
 
-    // Animation scrapped for now — expand/collapse snap instantly. The animated
-    // frame overshot on expand; re-enable later by wrapping the setFrame in an
-    // NSAnimationContext (and restoring the content .animation in NotchLiveView).
-    private func setPanelFrame(_ frame: NSRect) {
-        panel?.setFrame(frame, display: true)
+    // Expand uses a plain ease-out (both control-point Y values ≤ 1 → cannot
+    // overshoot) so the notch doesn't punch past its target and settle back.
+    // Collapse keeps the springy overshoot curve, which reads fine shrinking.
+    private static let expandTiming  = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+    private static let collapseTiming = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
+
+    private func animate(to frame: NSRect, timing: CAMediaTimingFunction) {
+        guard let panel else { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.38
+            ctx.timingFunction = timing
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     func toggleExpand() {
@@ -202,7 +210,7 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
 
     private func expand() {
         isExpanded = true
-        setPanelFrame(expandedFrame())
+        animate(to: expandedFrame(), timing: Self.expandTiming)
         scheduleCollapseTimer()
         startOutsideClickMonitor()
     }
@@ -214,7 +222,7 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
         // Close the settings popover first so it can't be left anchored to the
         // shrinking panel, stranded over the notch.
         popover?.performClose(nil)
-        setPanelFrame(collapsedFrame())
+        animate(to: collapsedFrame(), timing: Self.collapseTiming)
     }
 
     // A click anywhere outside our own windows (another app, the desktop, even
@@ -428,12 +436,11 @@ struct NotchLiveView: View {
                     .fill(Color.black)
                     .frame(width: geo.size.width, height: geo.size.height)
                     .overlay {
-                        // if/else, not AnyView: type-erasure breaks the
-                        // matchedGeometryEffect identity the morph relies on.
+                        // Content swaps instantly on state change — the number/bar
+                        // morph is intentionally OFF; only the window frame animates
+                        // (expand/collapse), which reads clean without content motion.
                         if controller.isExpanded { expandedContent } else { collapsedContent }
                     }
-                    // Content animation scrapped along with the window animation —
-                    // the island snaps between states for now.
                     // Tap-to-expand only when collapsed; when expanded, collapse
                     // is owned by the outside-click monitor and the auto-collapse
                     // timer — so a tap on the gear can't also collapse the island.
@@ -462,8 +469,7 @@ struct NotchLiveView: View {
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn,
-                     valueText: fiveHourValueText,
-                     percentMatchID: Match.fiveHourPercent, barMatchID: Match.fiveHourBar)
+                     valueText: fiveHourValueText)
             usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
 
             extraUsageRow(snapshot.extraUsage)
@@ -577,9 +583,8 @@ struct NotchLiveView: View {
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundColor(.white)
                 .brightness(isHovered ? 0.15 : 0)
-                .matchedGeometry(Match.fiveHourPercent, in: geometry)
 
-            bar(percent: fiveHour, matchID: Match.fiveHourBar)
+            bar(percent: fiveHour)
         }
     }
 }
