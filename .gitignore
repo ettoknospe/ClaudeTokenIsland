@@ -1,0 +1,25 @@
+# Xcode
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Release artifacts
+*.zip
+*.p12
+
+# Local dev tooling (xcode-build-server / llvm coverage)
+buildServer.json
+*.profraw
