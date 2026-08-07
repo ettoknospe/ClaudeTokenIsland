@@ -189,11 +189,17 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
         )
     }
 
-    private func animate(to frame: NSRect) {
+    // Expand uses a plain ease-out (both control-point Y values ≤ 1 → cannot
+    // overshoot) so the notch doesn't punch past its target and settle back.
+    // Collapse keeps the springy overshoot curve, which reads fine shrinking.
+    private static let expandTiming  = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+    private static let collapseTiming = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
+
+    private func animate(to frame: NSRect, timing: CAMediaTimingFunction) {
         guard let panel else { return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.38
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
+            ctx.timingFunction = timing
             panel.animator().setFrame(frame, display: true)
         }
     }
@@ -204,7 +210,7 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
 
     private func expand() {
         isExpanded = true
-        animate(to: expandedFrame())
+        animate(to: expandedFrame(), timing: Self.expandTiming)
         scheduleCollapseTimer()
         startOutsideClickMonitor()
     }
@@ -216,7 +222,7 @@ final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegat
         // Close the settings popover first so it can't be left anchored to the
         // shrinking panel, stranded over the notch.
         popover?.performClose(nil)
-        animate(to: collapsedFrame())
+        animate(to: collapsedFrame(), timing: Self.collapseTiming)
     }
 
     // A click anywhere outside our own windows (another app, the desktop, even
