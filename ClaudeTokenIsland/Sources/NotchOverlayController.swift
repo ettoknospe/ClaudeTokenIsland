@@ -384,6 +384,17 @@ struct NotchLiveView: View {
     private var sevenDay: Int { usageService.currentUsage.sevenDayUtilization }
     private var snapshot: UsageSnapshot { usageService.currentUsage }
 
+    // Once the 5h session is maxed and extra-usage credits are covering the
+    // overflow, a flat "100%" tells you nothing — so in that state the 5h slot
+    // shows the live credit spend instead. Shared by the collapsed pill and the
+    // expanded row so the number is identical and the morph stays clean.
+    private var fiveHourValueText: String {
+        if fiveHour >= 100, snapshot.extraUsage.enabled, let used = snapshot.extraUsage.used {
+            return creditText(used)
+        }
+        return "\(fiveHour)%"
+    }
+
     private func statusColor(for v: Int) -> Color {
         let w = settingsManager.settings.warningThreshold
         let c = settingsManager.settings.criticalThreshold
@@ -438,6 +449,7 @@ struct NotchLiveView: View {
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn,
+                     valueText: fiveHourValueText,
                      percentMatchID: Match.fiveHourPercent, barMatchID: Match.fiveHourBar)
             usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
 
@@ -459,6 +471,7 @@ struct NotchLiveView: View {
     }
 
     private func usageRow(label: String, percent: Int, resetIn: String?,
+                          valueText: String? = nil,
                           percentMatchID: String? = nil, barMatchID: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
@@ -466,7 +479,7 @@ struct NotchLiveView: View {
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
                 Spacer()
-                Text("\(percent)%")
+                Text(valueText ?? "\(percent)%")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
                     .matchedGeometry(percentMatchID, in: geometry)
@@ -504,10 +517,13 @@ struct NotchLiveView: View {
         }
     }
 
-    // Unit-agnostic: no currency symbol until a real enabled-state sample
-    // confirms whether the values are dollars, cents, or credits.
-    private func creditText(_ v: Double) -> String {
-        v == v.rounded() ? String(Int(v)) : String(format: "%.2f", v)
+    // Credit values arrive in minor units (cents); render as euros.
+    private func creditText(_ minorUnits: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "EUR"
+        f.locale = Locale(identifier: "de_DE")
+        return f.string(from: NSNumber(value: minorUnits / 100)) ?? String(format: "€%.2f", minorUnits / 100)
     }
 
     private func extraUsageBar(_ info: ExtraUsageInfo) -> some View {
@@ -544,7 +560,7 @@ struct NotchLiveView: View {
     // ── Stats row: "87 %" + inline progress bar (collapsed pill only) ─────────
     private var statsRow: some View {
         HStack(spacing: 6) {
-            Text("\(fiveHour) %")
+            Text(fiveHourValueText)
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundColor(.white)
                 .brightness(isHovered ? 0.15 : 0)
