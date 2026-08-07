@@ -434,9 +434,11 @@ struct NotchLiveView: View {
                         // matchedGeometryEffect identity the morph relies on.
                         if controller.isExpanded { expandedContent } else { collapsedContent }
                     }
-                    // Same curve as NotchOverlayController.animate()'s window frame.
-                    .animation(.timingCurve(0.34, 1.56, 0.64, 1, duration: 0.38),
-                               value: controller.isExpanded)
+                    // Smooth easeInOut (NOT the window's spring curve) so the
+                    // matched 5h number and bar glide to their expanded positions
+                    // without the overshoot that made them fling. Same 0.38s as the
+                    // window animation so content and frame land together.
+                    .animation(.easeInOut(duration: 0.38), value: controller.isExpanded)
                     // Tap-to-expand only when collapsed; when expanded, collapse
                     // is owned by the outside-click monitor and the auto-collapse
                     // timer — so a tap on the gear can't also collapse the island.
