@@ -1,13 +1,15 @@
 import Foundation
 
 struct AppSettings: Codable {
-    var warningThreshold: Double = 80.0
-    var criticalThreshold: Double = 90.0
-    var notificationsEnabled: Bool = true
-    var compactDisplay: Bool = true
+    var warningThreshold: Double = 80.0   // island bar turns orange at/above this
+    var criticalThreshold: Double = 90.0  // island bar turns red at/above this
     var refreshIntervalMinutes: Double = 5.0
+}
 
-    var isConfigured: Bool { true }
+struct SpendSnapshot {
+    let percent: Int
+    let usedFormatted: String
+    let limitFormatted: String
 }
 
 struct UsageSnapshot {
@@ -20,6 +22,7 @@ struct UsageSnapshot {
     let weeklySessions: Int
     let weeklyMessages: Int
     let weeklyTokens: Int
+    let spend: SpendSnapshot?
 
     var displayText: String { "\(sevenDayUtilization)%" }
     var menuBarPrimaryText: String { "5hr: \(fiveHourUtilization)%" }
@@ -35,7 +38,8 @@ struct UsageSnapshot {
             lastUpdated: Date(),
             weeklySessions: 0,
             weeklyMessages: 0,
-            weeklyTokens: 0
+            weeklyTokens: 0,
+            spend: nil
         )
     }
 }

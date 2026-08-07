@@ -35,11 +35,13 @@ struct OAuthUsageResponse: Decodable {
     let fiveHour: UsagePeriod?
     let sevenDay: UsagePeriod?
     let sevenDaySonnet: UsagePeriod?
+    let spend: Spend?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
         case sevenDaySonnet = "seven_day_sonnet"
+        case spend
     }
 
     struct UsagePeriod: Decodable {
@@ -57,6 +59,35 @@ struct OAuthUsageResponse: Decodable {
             return formatter.date(from: resetsAt)
         }
     }
+
+    // Pay-as-you-go "extra usage" credits — a separate pool from the plan's
+    // 5h/7d token limits. Present only for accounts with extra usage enabled.
+    struct Spend: Decodable {
+        let enabled: Bool
+        let used: Money
+        let limit: Money
+        let percent: Int
+
+        struct Money: Decodable {
+            let amountMinor: Int
+            let currency: String
+            let exponent: Int
+
+            enum CodingKeys: String, CodingKey {
+                case amountMinor = "amount_minor"
+                case currency
+                case exponent
+            }
+
+            var formatted: String {
+                let value = Double(amountMinor) / pow(10, Double(exponent))
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .currency
+                formatter.currencyCode = currency
+                return formatter.string(from: NSNumber(value: value)) ?? "\(value) \(currency)"
+            }
+        }
+    }
 }
 
 // MARK: - Utilization helpers (pure, testable)
@@ -71,8 +102,10 @@ func calculateUtilization(tokens: Int, limit: Int) -> Int {
 func formatTimeRemaining(until date: Date, from now: Date = Date()) -> String {
     let interval = date.timeIntervalSince(now)
     if interval <= 0 { return "now" }
-    let hours = Int(interval) / 3600
+    let days = Int(interval) / 86400
+    let hours = (Int(interval) % 86400) / 3600
     let minutes = (Int(interval) % 3600) / 60
+    if days > 0 { return "\(days)d \(hours)h" }
     return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
 }
 
@@ -147,6 +180,12 @@ final class UsageService: ObservableObject {
                 let fiveHourReset = response.fiveHour?.resetsAtDate
                 let sevenDayReset = response.sevenDay?.resetsAtDate
 
+                let spendSnapshot: SpendSnapshot? = (response.spend?.enabled == true)
+                    ? response.spend.map {
+                        SpendSnapshot(percent: $0.percent, usedFormatted: $0.used.formatted, limitFormatted: $0.limit.formatted)
+                      }
+                    : nil
+
                 let snapshot = UsageSnapshot(
                     fiveHourUtilization: fiveHourUtil,
                     sevenDayUtilization: sevenDayUtil,
@@ -156,7 +195,8 @@ final class UsageService: ObservableObject {
                     lastUpdated: Date(),
                     weeklySessions: 0,
                     weeklyMessages: 0,
-                    weeklyTokens: 0
+                    weeklyTokens: 0,
+                    spend: spendSnapshot
                 )
 
                 await MainActor.run {
