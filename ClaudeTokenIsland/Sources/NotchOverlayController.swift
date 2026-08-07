@@ -38,6 +38,7 @@ final class NotchOverlayController: NSObject, ObservableObject {
 
     @Published private(set) var isExpanded = false
     private var collapseTimer: Timer?
+    private var outsideClickMonitor: Any?
     private static let autoCollapseDelay: TimeInterval = 4
 
     // Geometry needed to compute both the collapsed and expanded window
@@ -60,15 +61,6 @@ final class NotchOverlayController: NSObject, ObservableObject {
             self, selector: #selector(repositionPanel),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
         )
-        // Collapse the island when the user switches to another app.
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self, selector: #selector(otherAppActivated),
-            name: NSWorkspace.didActivateApplicationNotification, object: nil
-        )
-    }
-
-    @objc private func otherAppActivated() {
-        if isExpanded { collapse() }
     }
 
     // MARK: - Built-in Screen
@@ -213,12 +205,34 @@ final class NotchOverlayController: NSObject, ObservableObject {
         isExpanded = true
         animate(to: expandedFrame())
         scheduleCollapseTimer()
+        startOutsideClickMonitor()
     }
 
     private func collapse() {
         isExpanded = false
         collapseTimer?.invalidate()
+        stopOutsideClickMonitor()
         animate(to: collapsedFrame())
+    }
+
+    // A click anywhere outside our own windows (another app, the desktop, even
+    // the same app that was already active) collapses the island. The global
+    // monitor never fires for clicks on the island itself — those go through the
+    // tap gesture — so this cleanly means "clicked away".
+    private func startOutsideClickMonitor() {
+        guard outsideClickMonitor == nil else { return }
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            self?.collapse()
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
     }
 
     private func scheduleCollapseTimer() {
