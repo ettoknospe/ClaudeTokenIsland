@@ -17,7 +17,7 @@ Bars are green normally, orange from 80%, red from 90%. Data mirrors `claude.ai/
 ## Interaction
 
 - **Tap** the pill to expand; tap again, click anywhere else, or wait ~4s (hovering pauses the countdown) to collapse.
-- **Gear** (top-right of the expanded island) opens a small settings popover: refresh interval, a manual refresh, and quit.
+- **Gear** (top-left of the expanded island) opens a small settings popover: refresh interval and quit. **Reload** (top-right) refreshes the data on demand.
 
 ## Requirements
 

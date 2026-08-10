@@ -496,10 +496,20 @@ struct NotchLiveView: View {
         .padding(.horizontal, 12)
         .padding(.top, 24)
         .padding(.bottom, 9)
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             Button(action: { controller.openSettings() }) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 7)
+            .padding(.leading, 12)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: { usageService.fetchUsage() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.55))
             }
             .buttonStyle(.plain)
