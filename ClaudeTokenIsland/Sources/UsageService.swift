@@ -118,6 +118,9 @@ final class UsageService: ObservableObject {
 
     @Published private(set) var currentUsage: UsageSnapshot = .placeholder
     @Published private(set) var error: String?
+    // False until the first successful fetch. Lets the UI tell "no data yet
+    // (e.g. rate-limited on launch)" apart from real zero-percent usage.
+    @Published private(set) var hasData: Bool = false
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var weeklySessions: Int = 0
     @Published private(set) var weeklyMessages: Int = 0
@@ -207,6 +210,7 @@ final class UsageService: ObservableObject {
                 await MainActor.run {
                     self.currentUsage = snapshot
                     self.error = nil
+                    self.hasData = true
                     self.isLoading = false
                     self.scheduleTimer(interval: self.normalInterval)
                 }

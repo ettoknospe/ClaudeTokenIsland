@@ -403,6 +403,13 @@ struct NotchLiveView: View {
     private var sevenDay: Int { usageService.currentUsage.sevenDayUtilization }
     private var snapshot: UsageSnapshot { usageService.currentUsage }
 
+    // Error to surface on the island — only while we have no data to show yet,
+    // so a transient failure (e.g. a 429) on top of a valid snapshot keeps the
+    // last-known numbers on screen instead of flipping to an error.
+    private var noDataError: String? {
+        (!usageService.hasData) ? usageService.error : nil
+    }
+
     // Once the 5h session is maxed and extra-usage credits are covering the
     // overflow, a flat "100%" tells you nothing — so in that state the 5h slot
     // shows the live credit spend instead. Shared by the collapsed pill and the
@@ -468,11 +475,23 @@ struct NotchLiveView: View {
     // with a gear (Settings/Quit popover) tucked into the top-right corner.
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn,
-                     valueText: fiveHourValueText)
-            usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
+            if let err = noDataError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(Color(red: 0.95, green: 0.6, blue: 0.1))
+                    Text(err)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn,
+                         valueText: fiveHourValueText)
+                usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
 
-            extraUsageRow(snapshot.extraUsage)
+                extraUsageRow(snapshot.extraUsage)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 24)
@@ -579,12 +598,23 @@ struct NotchLiveView: View {
     // ── Stats row: "87 %" + inline progress bar (collapsed pill only) ─────────
     private var statsRow: some View {
         HStack(spacing: 6) {
-            Text(fiveHourValueText)
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white)
-                .brightness(isHovered ? 0.15 : 0)
+            if let err = noDataError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(Color(red: 0.95, green: 0.6, blue: 0.1))
+                Text(err.contains("Rate limited") ? "rate limited" : "no data")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .help(err)
+            } else {
+                Text(fiveHourValueText)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .brightness(isHovered ? 0.15 : 0)
 
-            bar(percent: fiveHour)
+                bar(percent: fiveHour)
+            }
         }
     }
 }
