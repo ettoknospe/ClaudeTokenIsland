@@ -4,6 +4,8 @@ A lightweight macOS app that shows your [Claude.ai](https://claude.ai) plan usag
 
 ![Claude Token Island expanded](docs/expanded-island.png)
 
+the missing gap is the notch ;)
+
 ## What it shows
 
 - **Collapsed:** a small pill flush under the notch showing your live 5-hour session usage — a percentage and a colored bar.
