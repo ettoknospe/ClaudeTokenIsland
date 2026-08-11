@@ -29,7 +29,7 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
 }
 
 // MARK: - Controller
-final class NotchOverlayController: NSObject, ObservableObject {
+final class NotchOverlayController: NSObject, ObservableObject, NSPopoverDelegate {
     private var panel: NotchPanel?
     var popover: NSPopover?
 
@@ -56,6 +56,7 @@ final class NotchOverlayController: NSObject, ObservableObject {
         self.settingsManager = settingsManager
         self.popover         = popover
         super.init()
+        popover.delegate = self
         setupPanel()
         NotificationCenter.default.addObserver(
             self, selector: #selector(repositionPanel),
@@ -188,11 +189,17 @@ final class NotchOverlayController: NSObject, ObservableObject {
         )
     }
 
-    private func animate(to frame: NSRect) {
+    // Expand uses a plain ease-out (both control-point Y values ≤ 1 → cannot
+    // overshoot) so the notch doesn't punch past its target and settle back.
+    // Collapse keeps the springy overshoot curve, which reads fine shrinking.
+    private static let expandTiming  = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+    private static let collapseTiming = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
+
+    private func animate(to frame: NSRect, timing: CAMediaTimingFunction) {
         guard let panel else { return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.38
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
+            ctx.timingFunction = timing
             panel.animator().setFrame(frame, display: true)
         }
     }
@@ -203,7 +210,7 @@ final class NotchOverlayController: NSObject, ObservableObject {
 
     private func expand() {
         isExpanded = true
-        animate(to: expandedFrame())
+        animate(to: expandedFrame(), timing: Self.expandTiming)
         scheduleCollapseTimer()
         startOutsideClickMonitor()
     }
@@ -212,7 +219,10 @@ final class NotchOverlayController: NSObject, ObservableObject {
         isExpanded = false
         collapseTimer?.invalidate()
         stopOutsideClickMonitor()
-        animate(to: collapsedFrame())
+        // Close the settings popover first so it can't be left anchored to the
+        // shrinking panel, stranded over the notch.
+        popover?.performClose(nil)
+        animate(to: collapsedFrame(), timing: Self.collapseTiming)
     }
 
     // A click anywhere outside our own windows (another app, the desktop, even
@@ -245,7 +255,9 @@ final class NotchOverlayController: NSObject, ObservableObject {
     // Hovering the expanded island pauses the auto-collapse countdown;
     // leaving it restarts the countdown rather than collapsing immediately.
     func hoverChanged(_ hovering: Bool) {
-        guard isExpanded else { return }
+        // Don't let the leave-island path restart a countdown that would collapse
+        // out from under an open settings popover.
+        guard isExpanded, popover?.isShown != true else { return }
         if hovering {
             collapseTimer?.invalidate()
         } else {
@@ -260,6 +272,9 @@ final class NotchOverlayController: NSObject, ObservableObject {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            // Keep the island open while the popover is up; popoverDidClose
+            // restarts the auto-collapse countdown.
+            collapseTimer?.invalidate()
             let anchor = NSRect(x: cv.bounds.midX - 1, y: 0, width: 2, height: 2)
             popover.show(relativeTo: anchor, of: cv, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
@@ -267,6 +282,10 @@ final class NotchOverlayController: NSObject, ObservableObject {
     }
 
     func closePopover() { popover?.performClose(nil) }
+
+    func popoverDidClose(_ notification: Notification) {
+        if isExpanded { scheduleCollapseTimer() }
+    }
 }
 
 // MARK: - Island Shape
@@ -343,6 +362,19 @@ private struct IslandShape: Shape {
 // given via GeometryReader, so its own layout never fights the window-frame
 // animation that does the actual "growing" motion.
 
+private extension View {
+    // matchedGeometryEffect only when an id is supplied — lets one row helper
+    // serve both the matched 5h row and the unmatched 7d row.
+    @ViewBuilder
+    func matchedGeometry(_ id: String?, in ns: Namespace.ID) -> some View {
+        if let id {
+            matchedGeometryEffect(id: id, in: ns)
+        } else {
+            self
+        }
+    }
+}
+
 struct NotchLiveView: View {
     @ObservedObject var usageService:    UsageService
     @ObservedObject var settingsManager: SettingsManager
@@ -353,12 +385,41 @@ struct NotchLiveView: View {
 
     @State private var isHovered = false
 
+    // Shared namespace so the collapsed "5h %" number and its bar morph into the
+    // expanded "Session (5h)" row's number and full-width bar (and back) instead
+    // of cross-fading. The window frame is animated by AppKit over 0.38s with a
+    // spring-overshoot curve; the matched content is animated with the same curve
+    // (see .animation below) so the two clocks stay in step.
+    @Namespace private var geometry
+    private enum Match {
+        static let fiveHourPercent = "fiveHourPercent"
+        static let fiveHourBar = "fiveHourBar"
+    }
+
     // The stats strip hangs below the physical camera housing.
     static let stripHeight: CGFloat = 14
 
     private var fiveHour: Int { usageService.currentUsage.fiveHourUtilization }
     private var sevenDay: Int { usageService.currentUsage.sevenDayUtilization }
     private var snapshot: UsageSnapshot { usageService.currentUsage }
+
+    // Error to surface on the island — only while we have no data to show yet,
+    // so a transient failure (e.g. a 429) on top of a valid snapshot keeps the
+    // last-known numbers on screen instead of flipping to an error.
+    private var noDataError: String? {
+        (!usageService.hasData) ? usageService.error : nil
+    }
+
+    // Once the 5h session is maxed and extra-usage credits are covering the
+    // overflow, a flat "100%" tells you nothing — so in that state the 5h slot
+    // shows the live credit spend instead. Shared by the collapsed pill and the
+    // expanded row so the number is identical and the morph stays clean.
+    private var fiveHourValueText: String {
+        if fiveHour >= 100, snapshot.extraUsage.enabled, let used = snapshot.extraUsage.used {
+            return creditText(used)
+        }
+        return "\(fiveHour)%"
+    }
 
     private func statusColor(for v: Int) -> Color {
         let w = settingsManager.settings.warningThreshold
@@ -381,10 +442,16 @@ struct NotchLiveView: View {
                 IslandShape(topWidth: max(0, notchWidth - 8), notchHeight: notchHeight - 2)
                     .fill(Color.black)
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .overlay(
-                        controller.isExpanded ? AnyView(expandedContent) : AnyView(collapsedContent)
-                    )
-                    .onTapGesture { controller.toggleExpand() }
+                    .overlay {
+                        // Content swaps instantly on state change — the number/bar
+                        // morph is intentionally OFF; only the window frame animates
+                        // (expand/collapse), which reads clean without content motion.
+                        if controller.isExpanded { expandedContent } else { collapsedContent }
+                    }
+                    // Tap-to-expand only when collapsed; when expanded, collapse
+                    // is owned by the outside-click monitor and the auto-collapse
+                    // timer — so a tap on the gear can't also collapse the island.
+                    .onTapGesture { if !controller.isExpanded { controller.toggleExpand() } }
             }
         }
         .onHover { hovering in
@@ -408,20 +475,41 @@ struct NotchLiveView: View {
     // with a gear (Settings/Quit popover) tucked into the top-right corner.
     private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn)
-            usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
+            if let err = noDataError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(Color(red: 0.95, green: 0.6, blue: 0.1))
+                    Text(err)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                usageRow(label: "Session (5h)", percent: fiveHour, resetIn: snapshot.fiveHourResetIn,
+                         valueText: fiveHourValueText)
+                usageRow(label: "Weekly (7d)", percent: sevenDay, resetIn: snapshot.sevenDayResetIn)
 
-            if let spend = snapshot.spend {
-                spendRow(spend)
+                extraUsageRow(snapshot.extraUsage)
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 24)
         .padding(.bottom, 9)
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: .topLeading) {
             Button(action: { controller.openSettings() }) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 7)
+            .padding(.leading, 12)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: { usageService.fetchUsage() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.white.opacity(0.55))
             }
             .buttonStyle(.plain)
@@ -430,42 +518,77 @@ struct NotchLiveView: View {
         }
     }
 
-    private func usageRow(label: String, percent: Int, resetIn: String?) -> some View {
+    private func usageRow(label: String, percent: Int, resetIn: String?,
+                          valueText: String? = nil,
+                          percentMatchID: String? = nil, barMatchID: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
                 Spacer()
-                Text("\(percent)%")
+                Text(valueText ?? "\(percent)%")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
+                    .matchedGeometry(percentMatchID, in: geometry)
                 if let resetIn {
                     Text("· resets \(resetIn)")
                         .font(.system(size: 9))
                         .foregroundColor(.white.opacity(0.4))
                 }
             }
-            bar(percent: percent)
+            bar(percent: percent, matchID: barMatchID)
         }
     }
 
-    private func spendRow(_ spend: SpendSnapshot) -> some View {
+    // The account's pay-as-you-go "extra usage" pool — whether work keeps going
+    // (billed as credits) once the plan limits are hit, plus how much has been
+    // spent. Bar is green/orange/red by utilization when on, flat gray when off.
+    private func extraUsageRow(_ info: ExtraUsageInfo) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text("Extra usage")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundColor(.white.opacity(0.8))
                 Spacer()
-                Text("\(spend.usedFormatted) / \(spend.limitFormatted)")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
+                if info.enabled, let used = info.used, let limit = info.limit {
+                    Text("\(creditText(used)) / \(creditText(limit))")
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.6))
+                } else {
+                    Text(info.enabled ? "On" : "Off")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.white.opacity(info.enabled ? 0.9 : 0.5))
+                }
             }
-            bar(percent: spend.percent)
+            extraUsageBar(info)
         }
     }
 
-    private func bar(percent: Int) -> some View {
+    // Credit values arrive in minor units (cents); render as euros.
+    private func creditText(_ minorUnits: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "EUR"
+        f.locale = Locale(identifier: "de_DE")
+        return f.string(from: NSNumber(value: minorUnits / 100)) ?? String(format: "€%.2f", minorUnits / 100)
+    }
+
+    private func extraUsageBar(_ info: ExtraUsageInfo) -> some View {
+        let fraction = info.enabled ? min(1, max(0, CGFloat(info.percent ?? 0) / 100)) : 0
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.15))
+                Capsule()
+                    .fill(statusColor(for: info.percent ?? 0))
+                    .frame(width: geo.size.width * fraction)
+            }
+        }
+        .frame(height: 3)
+    }
+
+    private func bar(percent: Int, matchID: String? = nil) -> some View {
         GeometryReader { geo in
             let fraction = min(1, max(0, CGFloat(percent) / 100))
             ZStack(alignment: .leading) {
@@ -477,17 +600,31 @@ struct NotchLiveView: View {
             }
         }
         .frame(height: 3)
+        // Applied to the sized result, not inside the GeometryReader, so the
+        // matched frame is the bar's real bounds.
+        .matchedGeometry(matchID, in: geometry)
     }
 
     // ── Stats row: "87 %" + inline progress bar (collapsed pill only) ─────────
     private var statsRow: some View {
         HStack(spacing: 6) {
-            Text("\(fiveHour) %")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundColor(.white)
-                .brightness(isHovered ? 0.15 : 0)
+            if let err = noDataError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(Color(red: 0.95, green: 0.6, blue: 0.1))
+                Text(err.contains("Rate limited") ? "rate limited" : "no data")
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .help(err)
+            } else {
+                Text(fiveHourValueText)
+                    .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .brightness(isHovered ? 0.15 : 0)
 
-            bar(percent: fiveHour)
+                bar(percent: fiveHour)
+            }
         }
     }
 }

@@ -35,13 +35,13 @@ struct OAuthUsageResponse: Decodable {
     let fiveHour: UsagePeriod?
     let sevenDay: UsagePeriod?
     let sevenDaySonnet: UsagePeriod?
-    let spend: Spend?
+    let extraUsage: ExtraUsage?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
         case sevenDaySonnet = "seven_day_sonnet"
-        case spend
+        case extraUsage = "extra_usage"
     }
 
     struct UsagePeriod: Decodable {
@@ -60,32 +60,34 @@ struct OAuthUsageResponse: Decodable {
         }
     }
 
-    // Pay-as-you-go "extra usage" credits — a separate pool from the plan's
-    // 5h/7d token limits. Present only for accounts with extra usage enabled.
-    struct Spend: Decodable {
-        let enabled: Bool
-        let used: Money
-        let limit: Money
-        let percent: Int
+    // Pay-as-you-go "extra usage": the account toggle that lets work continue
+    // (billed as credits) after the plan's 5h/7d limits are hit. The live API
+    // returns `is_enabled` plus `monthly_limit`/`used_credits`/`utilization`,
+    // but those three come back null when the toggle is off and we have no real
+    // sample of the enabled shape — the types are inferred (utilization is a
+    // Double 0–100 like every other utilization in this API; the credit values
+    // are assumed plain numbers). Each is decoded through `try?` so a wrong
+    // guess yields nil instead of throwing and killing the whole response
+    // decode. Replace the guesses when a real enabled-state sample arrives.
+    struct ExtraUsage: Decodable {
+        let isEnabled: Bool
+        let utilization: Double?   // 0–100, drives the bar colour
+        let usedCredits: Double?
+        let monthlyLimit: Double?
 
-        struct Money: Decodable {
-            let amountMinor: Int
-            let currency: String
-            let exponent: Int
+        enum CodingKeys: String, CodingKey {
+            case isEnabled = "is_enabled"
+            case utilization
+            case usedCredits = "used_credits"
+            case monthlyLimit = "monthly_limit"
+        }
 
-            enum CodingKeys: String, CodingKey {
-                case amountMinor = "amount_minor"
-                case currency
-                case exponent
-            }
-
-            var formatted: String {
-                let value = Double(amountMinor) / pow(10, Double(exponent))
-                let formatter = NumberFormatter()
-                formatter.numberStyle = .currency
-                formatter.currencyCode = currency
-                return formatter.string(from: NSNumber(value: value)) ?? "\(value) \(currency)"
-            }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            isEnabled    = ((try? c.decodeIfPresent(Bool.self,   forKey: .isEnabled)) ?? nil) ?? false
+            utilization  =  (try? c.decodeIfPresent(Double.self, forKey: .utilization)) ?? nil
+            usedCredits  =  (try? c.decodeIfPresent(Double.self, forKey: .usedCredits)) ?? nil
+            monthlyLimit =  (try? c.decodeIfPresent(Double.self, forKey: .monthlyLimit)) ?? nil
         }
     }
 }
@@ -116,6 +118,9 @@ final class UsageService: ObservableObject {
 
     @Published private(set) var currentUsage: UsageSnapshot = .placeholder
     @Published private(set) var error: String?
+    // False until the first successful fetch. Lets the UI tell "no data yet
+    // (e.g. rate-limited on launch)" apart from real zero-percent usage.
+    @Published private(set) var hasData: Bool = false
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var weeklySessions: Int = 0
     @Published private(set) var weeklyMessages: Int = 0
@@ -180,11 +185,14 @@ final class UsageService: ObservableObject {
                 let fiveHourReset = response.fiveHour?.resetsAtDate
                 let sevenDayReset = response.sevenDay?.resetsAtDate
 
-                let spendSnapshot: SpendSnapshot? = (response.spend?.enabled == true)
-                    ? response.spend.map {
-                        SpendSnapshot(percent: $0.percent, usedFormatted: $0.used.formatted, limitFormatted: $0.limit.formatted)
-                      }
-                    : nil
+                let extraUsage: ExtraUsageInfo = response.extraUsage.map {
+                    ExtraUsageInfo(
+                        enabled: $0.isEnabled,
+                        percent: $0.utilization.map { Int($0) },
+                        used: $0.usedCredits,
+                        limit: $0.monthlyLimit
+                    )
+                } ?? .off
 
                 let snapshot = UsageSnapshot(
                     fiveHourUtilization: fiveHourUtil,
@@ -196,12 +204,13 @@ final class UsageService: ObservableObject {
                     weeklySessions: 0,
                     weeklyMessages: 0,
                     weeklyTokens: 0,
-                    spend: spendSnapshot
+                    extraUsage: extraUsage
                 )
 
                 await MainActor.run {
                     self.currentUsage = snapshot
                     self.error = nil
+                    self.hasData = true
                     self.isLoading = false
                     self.scheduleTimer(interval: self.normalInterval)
                 }

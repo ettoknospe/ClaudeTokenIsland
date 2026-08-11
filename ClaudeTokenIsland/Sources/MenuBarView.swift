@@ -1,8 +1,8 @@
 import SwiftUI
 
 // The popover the gear on the expanded island opens: just the controls —
-// refresh interval, a manual refresh, and quit. Usage numbers live on the
-// island itself, so they're deliberately not repeated here.
+// refresh interval and quit (manual refresh lives on the island's reload
+// icon). Usage numbers live on the island itself, so they're not repeated.
 struct MenuBarView: View {
     @ObservedObject var usageService: UsageService
     @ObservedObject var settingsManager: SettingsManager
@@ -28,15 +28,6 @@ struct MenuBarView: View {
             }
 
             Divider()
-
-            Button(action: { usageService.fetchUsage() }) {
-                HStack {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Refresh now")
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
 
             Button(action: { NSApplication.shared.terminate(nil) }) {
                 HStack {
