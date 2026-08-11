@@ -28,6 +28,24 @@ Bars are green normally, orange from 80%, red from 90%. Data mirrors `claude.ai/
 
 Uses [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`). The Xcode project is generated from `project.yml`; regenerate with `xcodegen generate` after editing it.
 
+### One-time: create the signing certificate
+
+The build signs with a stable identity named **`ClaudeTokenIsland Signing`** (`CODE_SIGN_IDENTITY` in `project.yml`). This is what stops macOS from re-asking for Keychain permission on every rebuild — the "Always Allow" grant is tied to the app's signature, and a stable signature keeps the grant valid. Create it **once**:
+
+1. Open **Keychain Access** → menu **Certificate Assistant → Create a Certificate…**
+2. **Name:** `ClaudeTokenIsland Signing` (must match exactly) · **Identity Type:** Self-Signed Root · **Certificate Type:** **Code Signing** → Create.
+3. Find the new cert in the **login** keychain → double-click → expand **Trust** → set **Code Signing: Always Trust** → close (enter your password).
+
+Confirm it's usable — it should be listed here:
+
+```bash
+security find-identity -v -p codesigning   # look for "ClaudeTokenIsland Signing"
+```
+
+> No Apple Developer account needed. If you'd rather not create a cert, set `CODE_SIGN_IDENTITY: "-"` in `project.yml` for ad-hoc signing — the app still works, but macOS re-prompts for Keychain access after every rebuild.
+
+### Build
+
 ```bash
 git clone https://github.com/ettoknospe/ClaudeTokenIsland
 cd ClaudeTokenIsland/ClaudeTokenIsland
@@ -45,7 +63,7 @@ cp -R ~/Library/Developer/Xcode/DerivedData/ClaudeTokenIsland-*/Build/Products/R
 open /Applications/ClaudeTokenIsland.app
 ```
 
-On first launch macOS asks permission to read the Claude Code Keychain item — click **Always Allow** (once, since the app now lives in a fixed location).
+On first launch macOS asks permission to read the Claude Code Keychain item — click **Always Allow**. With the stable signing cert above this happens only once and survives rebuilds; a Claude Code *re-login* (not a routine token refresh) recreates the item and costs one more prompt.
 
 To start it automatically: **System Settings → General → Login Items → +**, and add `ClaudeTokenIsland`.
 

@@ -39,7 +39,11 @@ Optional editor tooling: `xcode-build-server config -project ClaudeTokenIsland.x
 
 ## Code signing / Keychain gotcha
 
-Signing is ad-hoc (`CODE_SIGN_IDENTITY: "-"` in `project.yml`). The app reads a Keychain item owned by another app, which requires a user "Always Allow" grant. That grant is keyed to the code signature, and **ad-hoc signatures change on every rebuild**, so each freshly-built binary re-prompts for the Keychain password. This is a dev-loop artifact only: a copy that lives in a fixed location (`/Applications`) and isn't rebuilt prompts exactly once. Switching to a stable signing identity requires an Apple ID signed into Xcode (Settings → Accounts), which was not configured — don't assume automatic signing works.
+The app reads a Keychain item owned by another app, which requires a user "Always Allow" grant. That grant is keyed to the app's code signature (its designated requirement), so if the signature changes the grant no longer matches and macOS re-prompts.
+
+Signing uses a **stable self-signed identity** — `CODE_SIGN_IDENTITY: "ClaudeTokenIsland Signing"` in `project.yml`, a self-signed Code Signing cert in the login Keychain (marked *Always Trust* for Code Signing so it shows under `security find-identity -v -p codesigning`). Because the identity no longer changes per build, the "Always Allow" grant persists across rebuilds — verified by a no-source-change rebuild + reinstall launching silently. Grant it once after switching identities; a Claude Code *re-login* (not a routine token refresh) recreates the Keychain item and costs one more prompt.
+
+Historical note: this was previously ad-hoc (`CODE_SIGN_IDENTITY: "-"`), whose signature changes every build, so each freshly-built binary re-prompted — that's the bug the stable cert fixes. A paid Apple Developer identity isn't required; the self-signed cert (or the local `Apple Development` cert) suffices for a locally-run app.
 
 ## Architecture
 
