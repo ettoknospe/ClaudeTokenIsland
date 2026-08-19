@@ -24,7 +24,7 @@ Bars are green normally, orange from 80%, red from 90%. Data mirrors `claude.ai/
 ## Requirements
 
 - macOS 13+, a MacBook **with a notch**
-- [Claude Code](https://claude.ai/code) installed and logged in — the app reads its OAuth token from your Keychain, so there are no separate credentials to enter.
+- A Claude.ai account — sign in once from the app's settings popover (gear icon on the expanded island). The app does its own OAuth login and keeps its own token, independent of Claude Code CLI.
 
 ## Build from source
 
@@ -65,13 +65,13 @@ cp -R ~/Library/Developer/Xcode/DerivedData/ClaudeTokenIsland-*/Build/Products/R
 open /Applications/ClaudeTokenIsland.app
 ```
 
-On first launch macOS asks permission to read the Claude Code Keychain item — click **Always Allow**. With the stable signing cert above this happens only once and survives rebuilds; a Claude Code *re-login* (not a routine token refresh) recreates the item and costs one more prompt.
+On first launch, open the gear on the expanded island → **Sign in to Claude**. This opens your browser to Claude's login page; approve, copy the code shown on the success page, and paste it back into the popover. The app stores its own token in its own Keychain item, so it isn't affected by Claude Code CLI logging in/out or refreshing its own token — the stable signing cert above still matters for macOS's Keychain-access prompt on *this* item, but there's no more cross-app ACL to get reset out from under you.
 
 To start it automatically: **System Settings → General → Login Items → +**, and add `ClaudeTokenIsland`.
 
 ## How it works
 
-The app reads your Claude Code OAuth token from the macOS Keychain (`Claude Code-credentials`) and calls the same internal endpoint that powers `claude.ai/settings/usage`:
+The app does its own OAuth authorization-code + PKCE login against Claude's login page (the same public flow Claude Code CLI uses), stores the resulting access/refresh token pair in its own Keychain item, and calls the same internal endpoint that powers `claude.ai/settings/usage`:
 
 ```
 GET https://api.anthropic.com/api/oauth/usage
@@ -79,9 +79,9 @@ Authorization: Bearer <oauth_token>
 anthropic-beta: oauth-2025-04-20
 ```
 
-The token is cached in memory and re-read from the Keychain automatically if a request comes back unauthorized. On a rate-limit (`429`) it backs off and retries after 15 minutes.
+The access token is refreshed automatically shortly before it expires, and again if a request comes back unauthorized. On a rate-limit (`429`) it backs off and retries after 15 minutes.
 
-> **Note:** This endpoint is undocumented and may change. It requires Claude Code to be installed and logged in.
+> **Note:** This endpoint is undocumented and may change.
 
 ## Running tests
 

@@ -1,33 +1,4 @@
 import Foundation
-import Security
-
-// MARK: - OAuth Keychain
-
-private struct KeychainCredentials: Decodable {
-    let claudeAiOauth: OAuthData
-
-    struct OAuthData: Decodable {
-        let accessToken: String
-        let expiresAt: Double
-    }
-}
-
-func readOAuthAccessToken() throws -> String {
-    var result: AnyObject?
-    let query: [String: Any] = [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "Claude Code-credentials",
-        kSecReturnData as String: true,
-        kSecMatchLimit as String: kSecMatchLimitOne
-    ]
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-    guard status == errSecSuccess, let data = result as? Data else {
-        throw NSError(domain: "Keychain", code: Int(status),
-                      userInfo: [NSLocalizedDescriptionKey: "Claude Code credentials not found in Keychain. Make sure Claude Code is installed and logged in. (status: \(status))"])
-    }
-    let creds = try JSONDecoder().decode(KeychainCredentials.self, from: data)
-    return creds.claudeAiOauth.accessToken
-}
 
 // MARK: - API Response Model
 
@@ -134,16 +105,7 @@ final class UsageService: ObservableObject {
     // Injectable for testing
     var urlSession: URLSession = .shared
 
-    private var cachedToken: String?
-
     private init() {}
-
-    private func accessToken() throws -> String {
-        if let token = cachedToken { return token }
-        let token = try readOAuthAccessToken()
-        cachedToken = token
-        return token
-    }
 
     func startPolling() {
         fetchUsage()
@@ -175,7 +137,7 @@ final class UsageService: ObservableObject {
 
         Task {
             do {
-                let token = try accessToken()
+                let token = try await AuthManager.shared.validAccessToken()
                 let response = try await fetchOAuthUsage(accessToken: token)
 
                 let fiveHourUtil = Int(response.fiveHour?.utilization ?? 0)
@@ -217,17 +179,15 @@ final class UsageService: ObservableObject {
             } catch let error as NSError {
                 let isRateLimit = error.code == 429
                 let isAuthError = error.code == 401 || error.code == 403
+                if isAuthError {
+                    // Access token was rejected outright (not just near expiry) — force a refresh now.
+                    _ = try? await AuthManager.shared.forceRefresh()
+                }
                 await MainActor.run {
                     if isRateLimit {
-                        // Clear token so next attempt re-reads a potentially refreshed token from Keychain
-                        self.cachedToken = nil
                         self.error = "Rate limited — retrying in 15 min"
                         self.scheduleTimer(interval: self.backoffInterval)
                     } else {
-                        if isAuthError {
-                            // Cached token likely expired — force a fresh read from Keychain next attempt
-                            self.cachedToken = nil
-                        }
                         self.error = error.localizedDescription
                         self.scheduleTimer(interval: self.normalInterval)
                     }

@@ -14,6 +14,7 @@
 		77970AFD37DA6E66A9908B11 /* NotchOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0056FBBC026413DFCDA35BF2 /* NotchOverlayController.swift */; };
 		831374304B8C23B15DCCF69F /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F1D621E5F2CC57AF806CB8D /* SettingsManager.swift */; };
 		BE6E49A436B90E7360EBF04E /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42B44C3932F460F6CFA6036B /* main.swift */; };
+		C498CCA216CC71A30ED856CC /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB1E2FE87EF7C9FD4DBFFC90 /* AuthManager.swift */; };
 		D92FDCE7B2708BBEF53FCEB1 /* UsageData.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE73A5332FE75B14ED454F49 /* UsageData.swift */; };
 		DE64CDC7D1E5D1618C3C0EBA /* UsageServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD387B438485D967039B356 /* UsageServiceTests.swift */; };
 		F019FDDC9180CD1C2D22C606 /* UsageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A5B85D9BA076D44DBEE9D95 /* UsageService.swift */; };
@@ -42,6 +43,7 @@
 		7B8818EC21171F121D36936F /* ClaudeTokenIsland.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ClaudeTokenIsland.entitlements; sourceTree = "<group>"; };
 		8D9E70E631A81F0308F90EF1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		CB05B7498857E045001EE119 /* ClaudeTokenIsland.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeTokenIsland.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DB1E2FE87EF7C9FD4DBFFC90 /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthManager.swift; sourceTree = "<group>"; };
 		EE73A5332FE75B14ED454F49 /* UsageData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageData.swift; sourceTree = "<group>"; };
 		F5EA4515ADA2DEB101A47F87 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -62,6 +64,7 @@
 			isa = PBXGroup;
 			children = (
 				F5EA4515ADA2DEB101A47F87 /* AppDelegate.swift */,
+				DB1E2FE87EF7C9FD4DBFFC90 /* AuthManager.swift */,
 				42B44C3932F460F6CFA6036B /* main.swift */,
 				55D25115123CF72433C6A037 /* MenuBarView.swift */,
 				0056FBBC026413DFCDA35BF2 /* NotchOverlayController.swift */,
@@ -222,6 +225,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				062ADE175FEF8523C73D26E7 /* AppDelegate.swift in Sources */,
+				C498CCA216CC71A30ED856CC /* AuthManager.swift in Sources */,
 				584981133E579C275D4ACD34 /* MenuBarView.swift in Sources */,
 				77970AFD37DA6E66A9908B11 /* NotchOverlayController.swift in Sources */,
 				831374304B8C23B15DCCF69F /* SettingsManager.swift in Sources */,
